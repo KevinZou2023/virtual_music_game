@@ -1,0 +1,6 @@
+numpy
+scipy
+opencv-python
+PyQt5
+pygame
+mediapipe

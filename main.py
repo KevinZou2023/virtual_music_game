@@ -102,6 +102,516 @@ except Exception as e:
     print("将仅使用深度图追踪模式")
     hands = None
 
+# ========== 粒子特效系统 ==========
+class Particle:
+    """单个粒子"""
+    def __init__(self, x, y, color, velocity, gravity=0.3, lifespan=30):
+        self.x = x
+        self.y = y
+        self.color = color  # (B, G, R)
+        self.vx, self.vy = velocity
+        self.gravity = gravity
+        self.lifespan = lifespan
+        self.max_lifespan = lifespan
+        self.size = random.randint(3, 8)
+    
+    def update(self):
+        """更新粒子位置和状态"""
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += self.gravity  # 重力影响
+        self.lifespan -= 1
+    
+    def is_alive(self):
+        return self.lifespan > 0
+    
+    def get_alpha(self):
+        """透明度随寿命衰减"""
+        return max(0, self.lifespan / self.max_lifespan)
+    
+    def draw(self, canvas):
+        """绘制粒子"""
+        if not self.is_alive():
+            return
+        alpha = self.get_alpha()
+        # 根据透明度调整颜色亮度
+        color = tuple(int(c * alpha) for c in self.color)
+        size = int(self.size * alpha)
+        if size > 0:
+            cv2.circle(canvas, (int(self.x), int(self.y)), size, color, -1)
+
+
+class ParticleSystem:
+    """粒子系统管理器"""
+    def __init__(self):
+        self.particles = []
+    
+    def emit(self, x, y, base_color, count=18):
+        """在指定位置发射粒子
+        
+        Args:
+            x, y: 发射位置（像素坐标）
+            base_color: 基础颜色 (B, G, R)
+            count: 粒子数量 (15-20)
+        """
+        for _ in range(count):
+            # 随机颜色变化（基于鼓的颜色）
+            color_variation = 50
+            color = tuple(
+                max(0, min(255, c + random.randint(-color_variation, color_variation)))
+                for c in base_color
+            )
+            # 随机速度向量（向四周扩散）
+            angle = random.uniform(0, 2 * 3.14159)
+            speed = random.uniform(3, 10)
+            vx = speed * np.cos(angle)
+            vy = speed * np.sin(angle) - random.uniform(2, 5)  # 向上偏移
+            
+            particle = Particle(x, y, color, (vx, vy), 
+                               gravity=random.uniform(0.2, 0.5),
+                               lifespan=random.randint(20, 40))
+            self.particles.append(particle)
+    
+    def update(self):
+        """更新所有粒子"""
+        for particle in self.particles:
+            particle.update()
+        # 移除死亡粒子
+        self.particles = [p for p in self.particles if p.is_alive()]
+    
+    def draw(self, canvas):
+        """绘制所有粒子"""
+        for particle in self.particles:
+            particle.draw(canvas)
+
+
+# ========== 手势音量推杆 ==========
+class VolumeSlider:
+    """手势音量推杆"""
+    def __init__(self, x_norm=0.9, width_norm=0.06, height_norm=0.5, y_norm=0.25):
+        """
+        Args:
+            x_norm: 推杆X位置（归一化）
+            width_norm: 推杆宽度（归一化）
+            height_norm: 推杆高度（归一化）
+            y_norm: 推杆Y起始位置（归一化）
+        """
+        self.x_norm = x_norm
+        self.width_norm = width_norm
+        self.height_norm = height_norm
+        self.y_norm = y_norm
+        
+        self.volume = 0.8  # 当前音量 (0.0-1.0)
+        self.is_pinching = False
+        self.pinch_threshold = 0.05  # 归一化距离阈值（约30像素 / 600像素）
+        self.is_locked = False  # 是否锁定到推杆
+    
+    def update(self, hand_landmarks, frame_width, frame_height):
+        """更新推杆状态
+        
+        Args:
+            hand_landmarks: MediaPipe 手部关键点
+            frame_width, frame_height: 帧尺寸
+        
+        Returns:
+            volume: 当前音量值 (0.0-1.0)
+        """
+        if hand_landmarks is None:
+            self.is_pinching = False
+            self.is_locked = False
+            return self.volume
+        
+        for hand_lm in hand_landmarks:
+            # 获取食指指尖(8)和拇指指尖(4)
+            index_tip = hand_lm.landmark[4]
+            thumb_tip = hand_lm.landmark[12]
+            
+            # 计算欧氏距离（归一化）
+            dx = index_tip.x - thumb_tip.x
+            dy = index_tip.y - thumb_tip.y
+            distance = np.sqrt(dx*dx + dy*dy)
+            
+            # 检测捏合状态
+            self.is_pinching = distance < self.pinch_threshold
+            
+            if self.is_pinching:
+                # 计算手的中心位置（食指和拇指的中点）
+                hand_x = (index_tip.x + thumb_tip.x) / 2
+                hand_y = (index_tip.y + thumb_tip.y) / 2
+                
+                # 检查是否在推杆区域内
+                slider_left = self.x_norm - self.width_norm / 2
+                slider_right = self.x_norm + self.width_norm / 2
+                slider_top = self.y_norm
+                slider_bottom = self.y_norm + self.height_norm
+                
+                in_slider_area = (slider_left <= hand_x <= slider_right and
+                                 slider_top <= hand_y <= slider_bottom)
+                
+                if in_slider_area or self.is_locked:
+                    self.is_locked = True
+                    # 根据Y轴位置计算音量
+                    # Y轴向下增加，所以需要反转
+                    relative_y = (hand_y - slider_top) / self.height_norm
+                    self.volume = 1.0 - max(0.0, min(1.0, relative_y))
+            else:
+                self.is_locked = False
+        
+        return self.volume
+    
+    def draw(self, canvas, frame_width, frame_height):
+        """绘制推杆UI"""
+        # 计算像素坐标
+        x = int(self.x_norm * frame_width)
+        y = int(self.y_norm * frame_height)
+        w = int(self.width_norm * frame_width)
+        h = int(self.height_norm * frame_height)
+        
+        # 绘制背景轨道
+        track_x = x - w // 2
+        cv2.rectangle(canvas, (track_x, y), (track_x + w, y + h), (80, 80, 80), -1)
+        cv2.rectangle(canvas, (track_x, y), (track_x + w, y + h), (150, 150, 150), 2)
+        
+        # 绘制音量填充
+        fill_height = int(h * self.volume)
+        fill_y = y + h - fill_height
+        color = (0, 255, 0) if not self.is_locked else (0, 255, 255)
+        cv2.rectangle(canvas, (track_x + 2, fill_y), (track_x + w - 2, y + h - 2), color, -1)
+        
+        # 绘制滑块
+        slider_y = y + h - fill_height
+        cv2.rectangle(canvas, (track_x - 5, slider_y - 5), (track_x + w + 5, slider_y + 5), (255, 255, 255), -1)
+        
+        # 绘制音量百分比
+        vol_text = f"{int(self.volume * 100)}%"
+        cv2.putText(canvas, vol_text, (track_x - 10, y + h + 25), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        # 绘制标题
+        cv2.putText(canvas, "VOL", (track_x + 2, y - 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
+        # 捏合状态指示
+        if self.is_pinching:
+            cv2.putText(canvas, "PINCH", (track_x - 10, y - 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+
+# ========== 节奏游戏模式 ==========
+class Note:
+    """下落音符"""
+    def __init__(self, lane, spawn_time, speed=5):
+        self.lane = lane  # 轨道索引 (0, 1, 2)
+        self.spawn_time = spawn_time
+        self.y = 0  # 当前Y位置（像素）
+        self.speed = speed
+        self.judged = False
+        self.judge_result = None  # 'Perfect', 'Good', 'Miss'
+    
+    def update(self):
+        """更新音符位置"""
+        self.y += self.speed
+    
+    def draw(self, canvas, lane_x, lane_width, color):
+        """绘制音符"""
+        if self.judged and self.judge_result != 'Miss':
+            return
+        radius = int(lane_width * 0.3)
+        cv2.circle(canvas, (lane_x, int(self.y)), radius, color, -1)
+        cv2.circle(canvas, (lane_x, int(self.y)), radius, (255, 255, 255), 2)
+
+
+class RhythmGame:
+    """节奏游戏管理器"""
+    def __init__(self, drums):
+        self.drums = drums[:2]  # 只保留前两个鼓
+        self.active = False
+        self.notes = []
+        self.score = 0
+        self.combo = 0
+        self.max_combo = 0
+        
+        # 判定区域（底部）
+        self.judge_line_y = 0.85  # 归一化Y位置
+        self.judge_perfect = 80  # 像素（扩大）
+        self.judge_good = 150  # 像素（扩大）
+        
+        # 音符生成
+        self.note_speed = 6
+        self.spawn_interval = 800  # 毫秒
+        self.last_spawn_time = 0
+        
+        # 反馈显示
+        self.feedback_text = ""
+        self.feedback_time = 0
+        self.feedback_duration = 500  # 毫秒
+        
+        # 统计
+        self.perfect_count = 0
+        self.good_count = 0
+        self.miss_count = 0
+        
+        # 轨道颜色（只保留前两个鼓的颜色）
+        self.lane_colors = [(0, 255, 255), (255, 255, 0)]
+        
+        # 拖拽状态
+        self.is_dragging = False
+        self.dragging_drum_index = -1
+        self.pinch_threshold = 0.05  # 捏合阈值（和音量推杆一样）
+    
+    def toggle(self):
+        """切换游戏模式"""
+        self.active = not self.active
+        if self.active:
+            self.reset()
+        return self.active
+    
+    def reset(self):
+        """重置游戏"""
+        self.notes = []
+        self.score = 0
+        self.combo = 0
+        self.max_combo = 0
+        self.perfect_count = 0
+        self.good_count = 0
+        self.miss_count = 0
+        self.feedback_text = ""
+    
+    def update_dragging(self, hand_landmarks, drums, frame_width, frame_height):
+        """更新拖拽状态 - 使用拇指与小指指尖捏合
+        
+        Args:
+            hand_landmarks: MediaPipe 手部关键点
+            drums: VirtualDrum 列表
+            frame_width, frame_height: 帧尺寸
+        """
+        if hand_landmarks is None:
+            self.is_dragging = False
+            self.dragging_drum_index = -1
+            for drum in drums[:2]:
+                drum.is_being_dragged = False
+            return
+        
+        for hand_lm in hand_landmarks:
+            # 获取拇指指尖(4)和小指指尖(20)
+            thumb_tip = hand_lm.landmark[4]
+            pinky_tip = hand_lm.landmark[20]
+            
+            # 计算欧氏距离（归一化）
+            dx = thumb_tip.x - pinky_tip.x
+            dy = thumb_tip.y - pinky_tip.y
+            distance = (dx*dx + dy*dy) ** 0.5
+            
+            # 检测捏合状态
+            is_pinching = distance < self.pinch_threshold
+            
+            if is_pinching:
+                # 计算手的中心位置（拇指和小指的中点）
+                hand_x = (thumb_tip.x + pinky_tip.x) / 2
+                hand_y = (thumb_tip.y + pinky_tip.y) / 2
+                
+                # 检查是否在某个鼓的范围内
+                for i, drum in enumerate(drums[:2]):
+                    x, y, w, h = drum.rect_norm
+                    drum_center_x = x + w / 2
+                    drum_center_y = y + h / 2
+                    
+                    # 检查距离
+                    dist_to_drum = ((hand_x - drum_center_x) ** 2 + 
+                                   (hand_y - drum_center_y) ** 2) ** 0.5
+                    
+                    # 拖拽触发范围
+                    drag_threshold = max(w, h) / 2 + 0.05
+                    
+                    if dist_to_drum < drag_threshold or self.dragging_drum_index == i:
+                        self.is_dragging = True
+                        self.dragging_drum_index = i
+                        drum.is_being_dragged = True
+                        
+                        # 直接更新鼓的位置
+                        new_x = hand_x - w / 2
+                        new_y = hand_y - h / 2
+                        drum.set_position(new_x, new_y)
+                        return
+            else:
+                self.is_dragging = False
+                self.dragging_drum_index = -1
+                for drum in drums[:2]:
+                    drum.is_being_dragged = False
+    
+    def update(self, current_time_ms, frame_height):
+        """更新游戏状态"""
+        if not self.active:
+            return
+        
+        judge_y_px = int(self.judge_line_y * frame_height)
+        
+        # 生成新音符
+        if current_time_ms - self.last_spawn_time > self.spawn_interval:
+            # 随机选择轨道（只有两条）
+            lane = random.randint(0, 1)
+            note = Note(lane, current_time_ms, self.note_speed)
+            self.notes.append(note)
+            self.last_spawn_time = current_time_ms
+        
+        # 更新音符位置
+        for note in self.notes:
+            if not note.judged:
+                note.update()
+        
+        # 检查 Miss（飞出屏幕）
+        for note in self.notes:
+            if not note.judged and note.y > judge_y_px + 100:
+                note.judged = True
+                note.judge_result = 'Miss'
+                self.miss_count += 1
+                self.combo = 0
+                self.show_feedback("Miss", current_time_ms)
+        
+        # 移除已判定的音符
+        self.notes = [n for n in self.notes if not n.judged or 
+                      (n.judge_result == 'Miss' and n.y < frame_height + 50)]
+    
+    def judge_hit(self, lane, current_time_ms, frame_height, drums):
+        """判定击打
+        
+        Args:
+            lane: 轨道索引
+            current_time_ms: 当前时间
+            frame_height: 帧高度
+            drums: VirtualDrum 列表
+        
+        Returns:
+            str: 判定结果 ('Perfect', 'Good', None)
+        """
+        if not self.active:
+            return None
+        
+        # 使用实际鼓的 Y 位置
+        if lane < len(drums):
+            drum = drums[lane]
+            x, y, w, h = drum.rect_norm
+            judge_y_px = int((y + h/2) * frame_height)
+        else:
+            judge_y_px = int(self.judge_line_y * frame_height)
+        
+        # 查找该轨道上最近的未判定音符
+        closest_note = None
+        closest_distance = float('inf')
+        
+        for note in self.notes:
+            if note.lane == lane and not note.judged:
+                distance = abs(note.y - judge_y_px)
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_note = note
+        
+        if closest_note is None:
+            return None
+        
+        # 判定范围
+        if closest_distance < self.judge_perfect:
+            closest_note.judged = True
+            closest_note.judge_result = 'Perfect'
+            self.perfect_count += 1
+            self.score += 100
+            self.combo += 1
+            self.max_combo = max(self.max_combo, self.combo)
+            self.show_feedback("Perfect!", current_time_ms)
+            return 'Perfect'
+        elif closest_distance < self.judge_good:
+            closest_note.judged = True
+            closest_note.judge_result = 'Good'
+            self.good_count += 1
+            self.score += 50
+            self.combo += 1
+            self.max_combo = max(self.max_combo, self.combo)
+            self.show_feedback("Good", current_time_ms)
+            return 'Good'
+        
+        return None
+    
+    def show_feedback(self, text, current_time_ms):
+        """显示反馈文字"""
+        self.feedback_text = text
+        self.feedback_time = current_time_ms
+    
+    def draw(self, canvas, frame_width, frame_height, drum_pads, drums):
+        """绘制游戏元素"""
+        if not self.active:
+            return
+        
+        # 绘制轨道（使用实际鼓的位置）
+        for i in range(2):
+            if i < len(drums):
+                drum = drums[i]
+                x, y, w, h = drum.rect_norm
+                lane_center_x = int((x + w/2) * frame_width)
+                lane_width = int(w * frame_width)
+                
+                # 半透明轨道背景（从顶部到鼓的位置）
+                overlay = canvas.copy()
+                lane_left = lane_center_x - lane_width // 2
+                drum_y_px = int((y + h/2) * frame_height)
+                cv2.rectangle(overlay, (lane_left, 0), (lane_left + lane_width, drum_y_px + 50), 
+                             (50, 50, 50), -1)
+                cv2.addWeighted(overlay, 0.3, canvas, 0.7, 0, canvas)
+                
+                # 轨道边框
+                cv2.rectangle(canvas, (lane_left, 0), (lane_left + lane_width, drum_y_px + 50), 
+                             self.lane_colors[i], 2)
+        
+        # 绘制音符（使用实际鼓的位置）
+        for note in self.notes:
+            if note.lane < 2 and note.lane < len(drums):
+                drum = drums[note.lane]
+                x, y, w, h = drum.rect_norm
+                lane_x = int((x + w/2) * frame_width)
+                lane_width = int(w * frame_width)
+                note.draw(canvas, lane_x, lane_width, self.lane_colors[note.lane])
+        
+        # 拖拽提示
+        if self.is_dragging:
+            cv2.putText(canvas, "DRAGGING (pinch)", (frame_width - 200, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 200), 2)
+        
+        # 绘制分数、连击和统计信息
+        cv2.putText(canvas, f"SCORE: {self.score}", (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(canvas, f"COMBO: {self.combo}", (10, 60), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+        
+        # 绘制 Perfect/Good/Miss 统计
+        cv2.putText(canvas, f"Perfect: {self.perfect_count}", (10, 90), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+        cv2.putText(canvas, f"Good: {self.good_count}", (10, 115), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+        cv2.putText(canvas, f"Miss: {self.miss_count}", (10, 140), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 1)
+        
+        # 绘制反馈文字
+        if self.feedback_text:
+            # 计算反馈显示时间
+            elapsed = time.time() * 1000 - self.feedback_time
+            if elapsed < self.feedback_duration:
+                alpha = 1.0 - (elapsed / self.feedback_duration)
+                color = (0, 255, 0) if 'Perfect' in self.feedback_text else \
+                        (0, 255, 255) if 'Good' in self.feedback_text else (0, 0, 255)
+                # 放大显示
+                scale = 1.5 + (1.0 - alpha) * 0.5
+                text_size = cv2.getTextSize(self.feedback_text, cv2.FONT_HERSHEY_SIMPLEX, scale, 3)[0]
+                text_x = (frame_width - text_size[0]) // 2
+                text_y = frame_height // 2
+                cv2.putText(canvas, self.feedback_text, (text_x, text_y), 
+                           cv2.FONT_HERSHEY_SIMPLEX, scale, color, 3)
+            else:
+                self.feedback_text = ""
+        
+        # 游戏模式标识
+        cv2.putText(canvas, "RHYTHM MODE", (frame_width - 180, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+
 class HandTracker:
     """MediaPipe 手部追踪封装"""
     def __init__(self, hands_detector, mp_drawing_utils=None):
@@ -200,7 +710,7 @@ class VirtualDrum:
             min_valid_pixels: 最小有效像素数，低于此值视为噪点
         """
         self.name = name
-        self.rect_norm = rect_norm  # (x, y, w, h) in [0, 1]
+        self.rect_norm = list(rect_norm)  # (x, y, w, h) in [0, 1] - 改为 list 以便修改
         self.sound = sound
         self.trigger_depth = trigger_depth
         self.release_depth = release_depth
@@ -217,6 +727,14 @@ class VirtualDrum:
         
         # 缓存的 ROI 坐标（整数像素坐标）
         self.roi_rect = None  # (x, y, w, h)
+        
+        # 拖拽状态
+        self.is_being_dragged = False
+    
+    def set_position(self, x_norm, y_norm):
+        """设置鼓的位置（归一化坐标）"""
+        self.rect_norm[0] = x_norm
+        self.rect_norm[1] = y_norm
         
     def set_frame_size(self, frame_width, frame_height):
         """根据帧大小计算 ROI 的像素坐标"""
@@ -497,6 +1015,8 @@ class AirDrumApp(QtWidgets.QWidget):
         self.chkHandSkeleton.setChecked(True)  # 默认开启手部骨骼追踪
         self.chkMirror = QtWidgets.QCheckBox('Mirror')
         self.chkMirror.setChecked(True)  # 默认开启镜像
+        self.btnGameMode = QtWidgets.QPushButton('Game Mode: OFF')
+        self.btnGameMode.setCheckable(True)
         self.btnExit = QtWidgets.QPushButton('Exit')
         self.lblFps = QtWidgets.QLabel('FPS: 0')
         self.lblDist = QtWidgets.QLabel('Center Depth: N/A')
@@ -516,6 +1036,7 @@ class AirDrumApp(QtWidgets.QWidget):
         bottom.addWidget(self.chkDebug)
         bottom.addWidget(self.chkHandSkeleton)
         bottom.addWidget(self.chkMirror)
+        bottom.addWidget(self.btnGameMode)
         bottom.addStretch(1)
         bottom.addWidget(self.btnExit)
 
@@ -628,6 +1149,42 @@ class AirDrumApp(QtWidgets.QWidget):
         self.btnExit.clicked.connect(self.close)
 
         self.on_vol_change(self.sldVol.value())
+        
+        # 初始化粒子系统
+        self.particle_system = ParticleSystem()
+        
+        # 初始化音量推杆
+        self.volume_slider = VolumeSlider()
+        # 确保初始音量正确，防止声音丢失
+        for sound in SOUNDS.values():
+            if sound:
+                sound.set_volume(0.8)
+        
+        # 初始化节奏游戏
+        self.rhythm_game = RhythmGame(self.drums)
+        
+        # 连接游戏模式按钮
+        self.btnGameMode.clicked.connect(self.toggle_game_mode)
+    
+    def toggle_game_mode(self):
+        """切换游戏模式"""
+        is_active = self.rhythm_game.toggle()
+        self.btnGameMode.setText(f'Game Mode: {"ON" if is_active else "OFF"}')
+        if is_active:
+            self.btnGameMode.setStyleSheet('background-color: #4CAF50; color: white;')
+            # 在游戏模式启动时，将前两个鼓设置为对称位置
+            # 获取鼓的宽高
+            w = self.drums[0].rect_norm[2]
+            h = self.drums[0].rect_norm[3]
+            # 左鼓：x=0.25 居中，y=0.75
+            self.drums[0].set_position(0.25 - w/2, 0.75)
+            # 右鼓：x=0.75 居中，y=0.75
+            self.drums[1].set_position(0.75 - w/2, 0.75)
+        else:
+            self.btnGameMode.setStyleSheet('')
+            # 恢复原来的位置
+            self.drums[0].set_position(0.14, 0.1)
+            self.drums[1].set_position(0.34, 0.1)
 
     def closeEvent(self, e):
         try:
@@ -897,83 +1454,142 @@ class AirDrumApp(QtWidgets.QWidget):
         
         # 鼓的触发逻辑：只使用手势识别模式（食指 + 深度 + 速度）
         if hand_positions:
-            for drum in self.drums:
+            # 游戏模式下只处理前两个鼓
+            drums_to_process = self.drums[:2] if self.rhythm_game.active else self.drums
+            
+            for i, drum in enumerate(drums_to_process):
                 triggered = drum.update_hand_with_depth(hand_positions, depth_map, now_ms, mirror=mirror_enabled)
                 if triggered:
                     drum.play()
                     self.csv_writer.writerow([int(now_ms), 'Hit', drum.name, 0, 1.0])
+                    
+                    # 生成粒子特效
+                    pad = self.pads[i]
+                    x, y, pw, ph = pad.rect
+                    particle_x = int((x + pw/2) * w)
+                    particle_y = int((y + ph/2) * h)
+                    self.particle_system.emit(particle_x, particle_y, pad.color, count=random.randint(15, 20))
+                    
+                    # 节奏游戏判定
+                    if self.rhythm_game.active:
+                        self.rhythm_game.judge_hit(i, now_ms, h, self.drums)
+        
+        # 更新音量推杆
+        if self.hand_tracker.hand_landmarks:
+            new_volume = self.volume_slider.update(self.hand_tracker.hand_landmarks, w, h)
+            # 只在捏合状态时同步更新 Pygame 音量和 UI 滑块
+            if self.volume_slider.is_pinching:
+                vol_percent = int(new_volume * 100)
+                if vol_percent != self.sldVol.value():
+                    self.sldVol.blockSignals(True)
+                    self.sldVol.setValue(vol_percent)
+                    self.sldVol.blockSignals(False)
+                    # 更新所有声音的音量
+                    for sound in SOUNDS.values():
+                        if sound:
+                            sound.set_volume(new_volume)
+                    pygame.mixer.music.set_volume(new_volume)
+        
+        # 更新节奏游戏
+        self.rhythm_game.update(now_ms, h)
+        
+        # 游戏模式下更新拖拽状态
+        if self.rhythm_game.active and self.hand_tracker.hand_landmarks:
+            self.rhythm_game.update_dragging(self.hand_tracker.hand_landmarks, self.drums, w, h)
+        
+        # 更新粒子系统
+        self.particle_system.update()
         
         # ========== 钢琴逻辑（保持原有的 Winner-Takes-All）==========
-        # 为钢琴键设置帧大小（UI已经通过镜像画面自动调整）
-        for pad in self.pads:
-            if 'Piano' in pad.name:
-                x, y, pw, ph = pad.rect
-                rx, ry, rw, rh = int(x*w), int(y*h), int(pw*w), int(ph*h)
-                pad.draw_rect = (rx, ry, rw, rh)
-        
-        # 钢琴的 Winner-Takes-All 逻辑
-        piano_candidates = []
-        
-        # 钢琴触发逻辑：只使用手势识别模式
-        if hand_positions:
+        # 游戏模式下禁用钢琴
+        if not self.rhythm_game.active:
+            # 为钢琴键设置帧大小（UI已经通过镜像画面自动调整）
             for pad in self.pads:
                 if 'Piano' in pad.name:
                     x, y, pw, ph = pad.rect
-                    piano_rect = (x, y, x + pw, y + ph)
-                    
-                    # 检查手部是否在钢琴键区域内（已经镜像过）
-                    for hand_x, hand_y in hand_positions:
-                        check_x = hand_x
+                    rx, ry, rw, rh = int(x*w), int(y*h), int(pw*w), int(ph*h)
+                    pad.draw_rect = (rx, ry, rw, rh)
+            
+            # 钢琴的 Winner-Takes-All 逻辑
+            piano_candidates = []
+            
+            # 钢琴触发逻辑：只使用手势识别模式
+            if hand_positions:
+                for pad in self.pads:
+                    if 'Piano' in pad.name:
+                        x, y, pw, ph = pad.rect
+                        piano_rect = (x, y, x + pw, y + ph)
                         
-                        if piano_rect[0] <= check_x <= piano_rect[2] and piano_rect[1] <= hand_y <= piano_rect[3]:
-                            # 获取该位置的深度值
-                            # 将归一化坐标直接转换为像素坐标
-                            px = int(check_x * w)
-                            py = int(hand_y * h)
+                        # 检查手部是否在钢琴键区域内（已经镜像过）
+                        for hand_x, hand_y in hand_positions:
+                            check_x = hand_x
                             
-                            # 确保在范围内
-                            px = max(0, min(px, w - 1))
-                            py = max(0, min(py, h - 1))
-                            
-                            hand_depth = depth_map[py, px]
-                            
-                            # 如果深度满足条件，添加到候选
-                            if hand_depth < self.Z_trigger_mm:
-                                piano_candidates.append({
-                                    'pad': pad,
-                                    'dmin': hand_depth,
-                                    'conf': 1.0
-                                })
-                            break
-        
-        # Piano: 多音和弦模式 (Polyphonic / Multi-Key Support)
-        # 所有满足条件的键都可以同时按下
-        active_piano_keys = set()
-        for candidate in piano_candidates:
-            pad = candidate['pad']
-            active_piano_keys.add(pad)
-            # Hit/Hold 该键
-            self.handle_hit(pad, candidate['dmin'], candidate['conf'])
-        
-        # 3. Process Releases (Piano Only)
-        # 释放所有不在 active 列表中的键
-        for pad in self.pads:
-            if pad.mode == 'Hold':
-                if pad not in active_piano_keys:
-                    self.handle_release(pad)
+                            if piano_rect[0] <= check_x <= piano_rect[2] and piano_rect[1] <= hand_y <= piano_rect[3]:
+                                # 获取该位置的深度值
+                                # 将归一化坐标直接转换为像素坐标
+                                px = int(check_x * w)
+                                py = int(hand_y * h)
+                                
+                                # 确保在范围内
+                                px = max(0, min(px, w - 1))
+                                py = max(0, min(py, h - 1))
+                                
+                                hand_depth = depth_map[py, px]
+                                
+                                # 如果深度满足条件，添加到候选
+                                if hand_depth < self.Z_trigger_mm:
+                                    piano_candidates.append({
+                                        'pad': pad,
+                                        'dmin': hand_depth,
+                                        'conf': 1.0
+                                    })
+                                break
+            
+            # Piano: 多音和弦模式 (Polyphonic / Multi-Key Support)
+            # 所有满足条件的键都可以同时按下
+            active_piano_keys = set()
+            for candidate in piano_candidates:
+                pad = candidate['pad']
+                active_piano_keys.add(pad)
+                # Hit/Hold 该键
+                self.handle_hit(pad, candidate['dmin'], candidate['conf'])
+            
+            # 3. Process Releases (Piano Only)
+            # 释放所有不在 active 列表中的键
+            for pad in self.pads:
+                if pad.mode == 'Hold':
+                    if pad not in active_piano_keys:
+                        self.handle_release(pad)
 
         # ========== 绘制 UI ==========
+        
+        # 绘制节奏游戏（在鼓之前绘制，作为背景）
+        if self.rhythm_game.active:
+            self.rhythm_game.draw(canvas, w, h, self.pads, self.drums)
+        
         # 绘制鼓（UI已经通过镜像画面自动调整，不需要再次调整坐标）
-        for drum, pad in zip(self.drums, self.pads[:len(self.drums)]):
-            x, y, pw, ph = pad.rect
+        for i, (drum, pad) in enumerate(zip(self.drums, self.pads[:len(self.drums)])):
+            # 游戏模式下只绘制前两个鼓
+            if self.rhythm_game.active and i >= 2:
+                continue
+            
+            # 使用实际 VirtualDrum 的位置
+            x, y, pw, ph = drum.rect_norm
+            
             rx, ry, rw, rh = int(x*w), int(y*h), int(pw*w), int(ph*h)
             pad.draw_rect = (rx, ry, rw, rh)
+            # 同步更新 pad.rect 以便击鼓判定正确
+            pad.rect = (x, y, pw, ph)
             
             color = pad.color
             # 根据鼓的状态改变颜色
             if drum.state == drum.STATE_PRESSED:
                 color = (0, 0, 255)  # Red for pressed
                 cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), color, -1)  # Fill
+            elif drum.is_being_dragged:
+                # 正在拖拽时显示高亮边框
+                cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), (0, 255, 200), 4)  # Thick border
+                cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), pad.color, 2)
             else:
                 cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), color, 2)  # Outline
 
@@ -981,21 +1597,28 @@ class AirDrumApp(QtWidgets.QWidget):
             label = f"{pad.name} [{pad.key}]" if pad.key else pad.name
             cv2.putText(canvas, label, (rx+5, ry+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, cv2.LINE_AA)
         
-        # 绘制钢琴键
-        for pad in self.pads[len(self.drums):]:
-            if pad.draw_rect:
-                rx, ry, rw, rh = pad.draw_rect
-                
-                color = pad.color
-                if pad.state == 'Hit':
-                    color = (0, 0, 255)  # Red for hit
-                    cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), color, -1)  # Fill
-                else:
-                    cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), color, 2)  # Outline
+        # 绘制钢琴键（游戏模式下隐藏）
+        if not self.rhythm_game.active:
+            for pad in self.pads[len(self.drums):]:
+                if pad.draw_rect:
+                    rx, ry, rw, rh = pad.draw_rect
+                    
+                    color = pad.color
+                    if pad.state == 'Hit':
+                        color = (0, 0, 255)  # Red for hit
+                        cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), color, -1)  # Fill
+                    else:
+                        cv2.rectangle(canvas, (rx, ry), (rx+rw, ry+rh), color, 2)  # Outline
 
-                # Label with key
-                label = f"{pad.name} [{pad.key}]" if pad.key else pad.name
-                cv2.putText(canvas, label, (rx+5, ry+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, cv2.LINE_AA)
+                    # Label with key
+                    label = f"{pad.name} [{pad.key}]" if pad.key else pad.name
+                    cv2.putText(canvas, label, (rx+5, ry+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, cv2.LINE_AA)
+        
+        # 绘制粒子特效
+        self.particle_system.draw(canvas)
+        
+        # 绘制音量推杆
+        self.volume_slider.draw(canvas, w, h)
 
         # FPS
         dt = now - self.last_tick
