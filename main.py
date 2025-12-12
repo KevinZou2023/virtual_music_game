@@ -13,6 +13,14 @@ import mediapipe as mp
 
 import random
 
+# 导入节奏大师模块
+try:
+    from rhythm_master import RhythmMasterGame
+    RHYTHM_MASTER_AVAILABLE = True
+except ImportError:
+    RHYTHM_MASTER_AVAILABLE = False
+    print("[Warning] rhythm_master.py not found - Rhythm Master mode disabled")
+
 # Audio init
 pygame.mixer.pre_init(44100, -16, 2, 512)
 pygame.mixer.init()
@@ -400,6 +408,12 @@ class RhythmGame:
         # 长按手势状态
         self.long_press_lanes = set()  # 正在长按的轨道集合
         self.pinch_duration = 0  # 捏合持续时间
+        
+        # 谱面模式
+        self.chart_mode = False  # 是否使用谱面模式
+        self.chart_notes = []  # 从谱面加载的音符列表
+        self.chart_start_time = 0  # 谱面开始时间
+        self.next_note_index = 0  # 下一个要生成的音符索引
 
     def toggle(self):
         """切换游戏模式"""
@@ -427,6 +441,8 @@ class RhythmGame:
         self.miss_count = 0
         self.feedback_text = ""
         self.paused = False  # 重置暂停状态
+        self.chart_start_time = 0  # 重置谱面开始时间
+        self.next_note_index = 0  # 重置音符索引
 
     def detect_long_press(self, hand_landmarks, drums, frame_width, frame_height, current_time_ms):
         """检测长按手势（捏合状态维持）
@@ -537,6 +553,33 @@ class RhythmGame:
                 for drum in drums[:2]:
                     drum.is_being_dragged = False
 
+    def load_chart(self, chart_file):
+        """加载谱面文件"""
+        import json
+        try:
+            with open(chart_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            self.chart_notes = []
+            for note_data in data.get('notes', []):
+                note_info = {
+                    'time_ms': note_data['time'],
+                    'lane': note_data['lane'],
+                    'note_type': note_data.get('type', 'short'),
+                    'duration': note_data.get('duration', 0)
+                }
+                self.chart_notes.append(note_info)
+            
+            # 按时间排序
+            self.chart_notes.sort(key=lambda n: n['time_ms'])
+            self.chart_mode = True
+            self.next_note_index = 0
+            print(f"[RhythmGame] 已加载谱面: {chart_file}, 共 {len(self.chart_notes)} 个音符")
+            return True
+        except Exception as e:
+            print(f"[RhythmGame] 加载谱面失败: {e}")
+            return False
+    
     def update(self, current_time_ms, frame_height):
         """更新游戏状态"""
         if not self.active or self.paused:
@@ -544,26 +587,46 @@ class RhythmGame:
 
         judge_y_px = int(self.judge_line_y * frame_height)
 
-        # 生成新音符
-        if current_time_ms - self.last_spawn_time > self.spawn_interval:
-            # 随机选择轨道（只有两条）
-            lane = random.randint(0, 1)
+        # 根据模式生成音符
+        if self.chart_mode:
+            # 谱面模式：按照谱面时间生成音符
+            if self.chart_start_time == 0:
+                self.chart_start_time = current_time_ms
             
-            # 检查该轨道是否有未判定的音符，确保短音符和长音符不会重叠
-            has_active_note = any(n.lane == lane and not n.judged for n in self.notes)
+            elapsed_time = current_time_ms - self.chart_start_time
             
-            if not has_active_note:
-                # 50% 概率生成长音符，50% 生成短音符
-                if random.random() < 0.5:
-                    # 生成长音符（持续时间 1500-2500 毫秒）
-                    duration = random.randint(1500, 2500)
-                    note = Note(lane, current_time_ms, self.note_speed, note_type='long', duration=duration)
+            # 提前生成音符（提前2秒），让音符有足够时间下落
+            spawn_ahead_time = 2000
+            
+            while self.next_note_index < len(self.chart_notes):
+                note_info = self.chart_notes[self.next_note_index]
+                if note_info['time_ms'] - elapsed_time <= spawn_ahead_time:
+                    # 生成音符
+                    if note_info['note_type'] == 'long':
+                        note = Note(note_info['lane'], current_time_ms, self.note_speed, 
+                                  note_type='long', duration=note_info['duration'])
+                    else:
+                        note = Note(note_info['lane'], current_time_ms, self.note_speed, 
+                                  note_type='short')
+                    self.notes.append(note)
+                    self.next_note_index += 1
                 else:
-                    # 生成短音符
-                    note = Note(lane, current_time_ms, self.note_speed, note_type='short')
+                    break
+        else:
+            # 随机模式：原来的逻辑
+            if current_time_ms - self.last_spawn_time > self.spawn_interval:
+                lane = random.randint(0, 1)
+                has_active_note = any(n.lane == lane and not n.judged for n in self.notes)
                 
-                self.notes.append(note)
-                self.last_spawn_time = current_time_ms
+                if not has_active_note:
+                    if random.random() < 0.5:
+                        duration = random.randint(1500, 2500)
+                        note = Note(lane, current_time_ms, self.note_speed, note_type='long', duration=duration)
+                    else:
+                        note = Note(lane, current_time_ms, self.note_speed, note_type='short')
+                    
+                    self.notes.append(note)
+                    self.last_spawn_time = current_time_ms
 
         # 更新音符位置和长按状态
         for note in self.notes:
@@ -1201,59 +1264,118 @@ class VirtualDrum:
 
 
 class DifficultyDialog(QtWidgets.QDialog):
-    """游戏难度选择对话框"""
+    """游戏难度选择对话框 - 美化版"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle('选择游戏难度')
         self.setModal(True)
-        self.setFixedSize(400, 300)
-        self.selected_difficulty = 'normal'  # 默认难度
+        self.setFixedSize(500, 450)
+        self.selected_difficulty = 'normal'
         
-        # 创建UI
-        layout = QtWidgets.QVBoxLayout(self)
+        # 设置整体样式
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QLabel {
+                color: #ffffff;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            QPushButton {
+                border: none;
+                border-radius: 8px;
+                padding: 15px;
+                text-align: left;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+        """)
         
-        # 标题
-        title = QtWidgets.QLabel('请选择游戏难度')
-        title_font = title.font()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(title)
+        # 主布局
+        main_layout = QtWidgets.QVBoxLayout(self)
+        main_layout.setContentsMargins(30, 30, 30, 30)
+        main_layout.setSpacing(20)
         
-        layout.addSpacing(20)
+        # 标题部分
+        title_label = QtWidgets.QLabel("DIFFICULTY SELECT")
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; letter-spacing: 2px; color: #00e5ff;")
+        title_label.setAlignment(QtCore.Qt.AlignCenter)
+        main_layout.addWidget(title_label)
         
-        # 简单难度按钮
-        self.btn_easy = QtWidgets.QPushButton('简单 (Easy)')
-        self.btn_easy.setFixedHeight(60)
-        self.btn_easy.setFont(QtGui.QFont('Arial', 12))
-        self.btn_easy.setStyleSheet('background-color: #90EE90; font-weight: bold;')
-        self.btn_easy.clicked.connect(lambda: self.select_difficulty('easy'))
-        layout.addWidget(self.btn_easy)
+        subtitle_label = QtWidgets.QLabel("请选择您的挑战等级")
+        subtitle_label.setStyleSheet("font-size: 14px; color: #aaaaaa; margin-bottom: 10px;")
+        subtitle_label.setAlignment(QtCore.Qt.AlignCenter)
+        main_layout.addWidget(subtitle_label)
         
-        layout.addSpacing(10)
+        # 难度按钮辅助函数
+        def create_difficulty_btn(name, desc, color_base, color_hover, diff_code):
+            btn = QtWidgets.QPushButton()
+            btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {color_base};
+                    color: white;
+                    border-left: 5px solid {color_hover};
+                }}
+                QPushButton:hover {{
+                    background-color: {color_hover};
+                    padding-left: 20px; /* 简单的动画效果 */
+                }}
+                QPushButton:pressed {{
+                    background-color: {color_base};
+                }}
+            """)
+            
+            # 按钮内部布局
+            btn_layout = QtWidgets.QVBoxLayout(btn)
+            btn_layout.setContentsMargins(15, 10, 15, 10)
+            
+            lbl_name = QtWidgets.QLabel(name)
+            lbl_name.setStyleSheet("font-size: 18px; font-weight: bold; background: transparent;")
+            
+            lbl_desc = QtWidgets.QLabel(desc)
+            lbl_desc.setStyleSheet("font-size: 12px; color: rgba(255,255,255,0.8); background: transparent;")
+            
+            btn_layout.addWidget(lbl_name)
+            btn_layout.addWidget(lbl_desc)
+            
+            btn.clicked.connect(lambda: self.select_difficulty(diff_code))
+            return btn
+
+        # 添加按钮
+        # 简单：青绿色
+        btn_easy = create_difficulty_btn(
+            "EASY  |  简单", 
+            "适合初学者，音符速度较慢", 
+            "#2d4a3e", "#27ae60", 'easy'
+        )
+        main_layout.addWidget(btn_easy)
         
-        # 普通难度按钮
-        self.btn_normal = QtWidgets.QPushButton('普通 (Normal)')
-        self.btn_normal.setFixedHeight(60)
-        self.btn_normal.setFont(QtGui.QFont('Arial', 12))
-        self.btn_normal.setStyleSheet('background-color: #87CEEB; font-weight: bold;')
-        self.btn_normal.clicked.connect(lambda: self.select_difficulty('normal'))
-        layout.addWidget(self.btn_normal)
+        # 普通：深蓝色
+        btn_normal = create_difficulty_btn(
+            "NORMAL  |  普通", 
+            "标准的节奏体验，适中的速度", 
+            "#2c3e50", "#2980b9", 'normal'
+        )
+        main_layout.addWidget(btn_normal)
         
-        layout.addSpacing(10)
+        # 困难：深红色
+        btn_hard = create_difficulty_btn(
+            "HARD  |  困难", 
+            "极速挑战，考验你的反应极限", 
+            "#502c2c", "#c0392b", 'hard'
+        )
+        main_layout.addWidget(btn_hard)
         
-        # 困难难度按钮
-        self.btn_hard = QtWidgets.QPushButton('困难 (Hard)')
-        self.btn_hard.setFixedHeight(60)
-        self.btn_hard.setFont(QtGui.QFont('Arial', 12))
-        self.btn_hard.setStyleSheet('background-color: #FF6B6B; font-weight: bold; color: white;')
-        self.btn_hard.clicked.connect(lambda: self.select_difficulty('hard'))
-        layout.addWidget(self.btn_hard)
+        main_layout.addStretch()
         
-        layout.addStretch()
-    
+        # 底部提示
+        footer = QtWidgets.QLabel("Press ESC to Cancel")
+        footer.setStyleSheet("color: #666666; font-size: 10px;")
+        footer.setAlignment(QtCore.Qt.AlignCenter)
+        main_layout.addWidget(footer)
+
     def center_on_screen(self):
         """将对话框移动到屏幕中心"""
         desktop = QtWidgets.QDesktopWidget()
@@ -1341,8 +1463,17 @@ class AirDrumApp(QtWidgets.QWidget):
         self.chkHandSkeleton.setChecked(True)  # 默认开启手部骨骼追踪
         self.chkMirror = QtWidgets.QCheckBox('Mirror')
         self.chkMirror.setChecked(True)  # 默认开启镜像
-        self.btnGameMode = QtWidgets.QPushButton('Game Mode: OFF')
+        
+        # 游戏模式按钮
+        self.btnGameMode = QtWidgets.QPushButton('🎮 Game Mode: OFF')
         self.btnGameMode.setCheckable(True)
+        
+        # 选择谱面按钮
+        self.btnSelectChart = QtWidgets.QPushButton('📋 选择谱面')
+        self.btnSelectChart.setEnabled(RHYTHM_MASTER_AVAILABLE)
+        if not RHYTHM_MASTER_AVAILABLE:
+            self.btnSelectChart.setToolTip("需要 rhythm_master.py")
+        
         self.btnExit = QtWidgets.QPushButton('Exit')
         self.lblFps = QtWidgets.QLabel('FPS: 0')
         self.lblDist = QtWidgets.QLabel('Center Depth: N/A')
@@ -1362,7 +1493,8 @@ class AirDrumApp(QtWidgets.QWidget):
         bottom.addWidget(self.chkDebug)
         bottom.addWidget(self.chkHandSkeleton)
         bottom.addWidget(self.chkMirror)
-        bottom.addWidget(self.btnGameMode)
+        bottom.addWidget(self.btnSelectChart)  # 选择谱面按钮
+        bottom.addWidget(self.btnGameMode)  # 游戏模式按钮
         bottom.addStretch(1)
         bottom.addWidget(self.btnExit)
 
@@ -1471,6 +1603,8 @@ class AirDrumApp(QtWidgets.QWidget):
         self.sldVol.valueChanged.connect(self.on_vol_change)
         self.chkDebug.toggled.connect(lambda _: None)
         self.chkHandSkeleton.toggled.connect(self.on_hand_skeleton_toggle)
+        self.btnSelectChart.clicked.connect(self.select_chart)  # 连接选择谱面按钮
+        self.btnGameMode.clicked.connect(self.toggle_game_mode)  # 连接游戏模式按钮
         self.btnExit.clicked.connect(self.close)
 
         self.on_vol_change(self.sldVol.value())
@@ -1485,36 +1619,295 @@ class AirDrumApp(QtWidgets.QWidget):
             if sound:
                 sound.set_volume(0.8)
 
-        # 初始化节奏游戏
-        self.rhythm_game = RhythmGame(self.drums)
-
-        # 连接游戏模式按钮
-        self.btnGameMode.clicked.connect(self.toggle_game_mode)
-
-    def toggle_game_mode(self):
-        """切换游戏模式"""
-        is_active = self.rhythm_game.toggle()
-        self.btnGameMode.setText(f'Game Mode: {"ON" if is_active else "OFF"}')
-        if is_active:
-            # 游戏模式启动，显示难度选择对话框
-            difficulty_dialog = DifficultyDialog(self)
-            difficulty_dialog.center_on_screen()
-            difficulty_dialog.exec_()
+        # 初始化节奏游戏系统
+        self.rhythm_game = None  # 不再使用旧的随机模式
+        self.current_chart_path = None  # 当前选择的谱面路径
+        
+        if RHYTHM_MASTER_AVAILABLE:
+            self.rhythm_game = RhythmMasterGame(self.drums)
+            # 默认加载小星星谱面
+            default_chart = 'assets/charts/twinkle_twinkle.json'
+            if os.path.exists(default_chart):
+                if self.rhythm_game.load_chart(default_chart):
+                    self.current_chart_path = default_chart
+                    print(f"✓ 默认加载谱面: {self.rhythm_game.current_chart.title}")
+        
+        # 保留旧的rhythm_master引用以兼容
+        self.rhythm_master = self.rhythm_game
+    
+    def select_chart(self):
+        """选择谱面"""
+        if not RHYTHM_MASTER_AVAILABLE or not self.rhythm_game:
+            QtWidgets.QMessageBox.warning(self, "错误", "节奏大师模块未安装！")
+            return
+        
+        # 打开文件选择对话框
+        chart_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, 
+            "选择谱面文件", 
+            "assets/charts",
+            "JSON 文件 (*.json)"
+        )
+        
+        if not chart_path:
+            return
+        
+        # 加载谱面
+        if self.rhythm_game.load_chart(chart_path):
+            self.current_chart_path = chart_path
             
-            self.btnGameMode.setStyleSheet('background-color: #4CAF50; color: white;')
-            # 在游戏模式启动时，将前两个鼓设置为对称位置
-            # 获取鼓的宽高
-            w = self.drums[0].rect_norm[2]
-            h = self.drums[0].rect_norm[3]
-            # 左鼓：x=0.25 居中，y=0.75
-            self.drums[0].set_position(0.25 - w / 2, 0.75)
-            # 右鼓：x=0.75 居中，y=0.75
-            self.drums[1].set_position(0.75 - w / 2, 0.75)
+            QtWidgets.QMessageBox.information(
+                self,
+                "谱面已加载",
+                f"<h3>{self.rhythm_game.current_chart.title}</h3>"
+                f"<p><b>艺术家:</b> {self.rhythm_game.current_chart.artist}</p>"
+                f"<p><b>难度:</b> {'⭐' * self.rhythm_game.current_chart.difficulty}</p>"
+                f"<p><b>BPM:</b> {self.rhythm_game.current_chart.bpm}</p>"
+                f"<p><b>音符数:</b> {len(self.rhythm_game.current_chart.notes)}</p>"
+                f"<hr>"
+                f"<p>点击 <b>Game Mode</b> 按钮开始游戏</p>"
+            )
         else:
+            QtWidgets.QMessageBox.critical(
+                self, "错误", "谱面加载失败！请检查文件格式。"
+            )
+    
+    def toggle_game_mode(self):
+        """切换游戏模式 - 启动/停止谱面游戏"""
+        if not self.rhythm_game:
+            QtWidgets.QMessageBox.warning(self, "错误", "游戏系统未初始化！")
+            return
+        
+        if not self.running:
+            QtWidgets.QMessageBox.warning(
+                self, "提示", "请先点击 'Start' 按钮启动摄像头！"
+            )
+            self.btnGameMode.setChecked(False)
+            return
+        
+        # 如果游戏正在运行，停止它
+        if self.rhythm_game.active:
+            self.rhythm_game.stop_game()
+            self.btnGameMode.setChecked(False)
+            self.btnGameMode.setText('🎮 Game Mode: OFF')
             self.btnGameMode.setStyleSheet('')
-            # 恢复原来的位置
+            self.btnSelectChart.setEnabled(True)
+            
+            # 恢复鼓的位置
             self.drums[0].set_position(0.14, 0.1)
             self.drums[1].set_position(0.34, 0.1)
+            
+            # 显示最终分数
+            if self.rhythm_game.current_chart:
+                total_notes = len(self.rhythm_game.current_chart.notes)
+                accuracy = 0
+                if total_notes > 0:
+                    accuracy = (self.rhythm_game.perfect_count + self.rhythm_game.good_count) / total_notes * 100
+                
+                QtWidgets.QMessageBox.information(
+                    self, "游戏结束",
+                    f"<h3>🏆 {self.rhythm_game.current_chart.title}</h3>"
+                    f"<p><b>最终得分:</b> {self.rhythm_game.score}</p>"
+                    f"<p><b>最大连击:</b> {self.rhythm_game.max_combo}</p>"
+                    f"<p><b>Perfect:</b> {self.rhythm_game.perfect_count}</p>"
+                    f"<p><b>Good:</b> {self.rhythm_game.good_count}</p>"
+                    f"<p><b>Miss:</b> {self.rhythm_game.miss_count}</p>"
+                    f"<hr>"
+                    f"<p><b>准确率:</b> {accuracy:.1f}%</p>"
+                )
+            return
+        
+        # 启动游戏
+        if not self.rhythm_game.current_chart:
+            QtWidgets.QMessageBox.warning(
+                self, "提示", 
+                "请先选择谱面！\n\n"
+                "点击 '📋 选择谱面' 按钮选择谱面\n"
+                "或使用默认的小星星谱面"
+            )
+            self.btnGameMode.setChecked(False)
+            return
+        
+        # 先显示对话框
+        chart_name = self.rhythm_game.current_chart.title
+        
+        QtWidgets.QMessageBox.information(
+            self,
+            "开始游戏！",
+            f"<h3>🎮 {chart_name}</h3>"
+            f"<p><b>操作说明:</b></p>"
+            f"<ul>"
+            f"<li>键盘 <b>A 键</b> = 左轨道</li>"
+            f"<li>键盘 <b>D 键</b> = 右轨道</li>"
+            f"<li>或使用手势捏合</li>"
+            f"<li><b>空格</b> = 暂停</li>"
+            f"</ul>"
+            f"<p><b>音符到达绿线时按键，击中会播放对应音符！</b></p>"
+            f"<hr>"
+            f"<p><b>点击OK后将显示游戏界面并开始3秒倒计时...</b></p>"
+        )
+        
+        # 先设置UI和游戏状态
+        self.btnGameMode.setChecked(True)
+        self.btnGameMode.setText(f'🎮 Game: {chart_name}')
+        self.btnGameMode.setStyleSheet('background-color: #4CAF50; color: white;')
+        self.btnSelectChart.setEnabled(False)
+        
+        # 调整鼓的位置到游戏模式
+        w = self.drums[0].rect_norm[2]
+        h = self.drums[0].rect_norm[3]
+        self.drums[0].set_position(0.25 - w / 2, 0.75)  # 左鼓
+        self.drums[1].set_position(0.75 - w / 2, 0.75)  # 右鼓
+        
+        # 启动游戏但设置为倒计时状态
+        if self.rhythm_game.start_game():
+            # 设置倒计时状态（游戏暂停，显示倒计时）
+            self.rhythm_game.countdown_active = True
+            self.rhythm_game.countdown_value = 3
+            self.rhythm_game.countdown_start_time = time.time() * 1000
+        else:
+            QtWidgets.QMessageBox.critical(
+                self, "错误", "游戏启动失败！"
+            )
+            self.btnGameMode.setChecked(False)
+    
+    def draw_rhythm_master_ui(self, canvas, w, h, current_time_ms):
+        """绘制节奏大师游戏UI"""
+        if not self.rhythm_master or not self.rhythm_master.active:
+            return
+        
+        game = self.rhythm_master
+        chart = game.current_chart
+        
+        if not chart:
+            return
+        
+        # 半透明背景
+        overlay = canvas.copy()
+        cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.3, canvas, 0.7, 0, canvas)
+        
+        # 判定线
+        judge_y = int(game.judge_line_y * h)
+        cv2.line(canvas, (0, judge_y), (w, judge_y), (0, 255, 0), 4)
+        cv2.putText(canvas, "JUDGE LINE", (10, judge_y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # 倒计时显示（覆盖在游戏界面上）
+        if game.countdown_active and game.countdown_value > 0:
+            countdown_text = str(game.countdown_value)
+            font_scale = 10
+            thickness = 20
+            text_size = cv2.getTextSize(countdown_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
+            text_x = (w - text_size[0]) // 2
+            text_y = (h + text_size[1]) // 2
+            
+            # 绘制阴影
+            cv2.putText(canvas, countdown_text, (text_x + 5, text_y + 5),
+                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness + 5)
+            # 绘制主文字
+            cv2.putText(canvas, countdown_text, (text_x, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness)
+            
+            # 显示提示文字
+            tip_text = "GET READY!"
+            tip_size = cv2.getTextSize(tip_text, cv2.FONT_HERSHEY_SIMPLEX, 2, 3)[0]
+            tip_x = (w - tip_size[0]) // 2
+            tip_y = text_y + 150
+            cv2.putText(canvas, tip_text, (tip_x, tip_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 0), 3)
+            
+            # 倒计时期间直接返回，不绘制音符
+            return
+        
+        # 绘制音符
+        for note in chart.notes:
+            if note.spawned and not note.judged:
+                if note.lane < len(game.drums):
+                    drum = game.drums[note.lane]
+                    x, y, dw, dh = drum.rect_norm
+                    lane_x = int((x + dw / 2) * w)
+                    lane_width = int(dw * w)
+                    
+                    # 轨道背景
+                    cv2.rectangle(canvas, 
+                                (lane_x - lane_width // 2, 0),
+                                (lane_x + lane_width // 2, h),
+                                (50, 50, 50), 1)
+                    
+                    # 音符
+                    color = game.lane_colors[note.lane]
+                    if note.note_type == 'short':
+                        radius = int(lane_width * 0.3)
+                        cv2.circle(canvas, (lane_x, int(note.y)), radius, color, -1)
+                        cv2.circle(canvas, (lane_x, int(note.y)), radius, (255, 255, 255), 2)
+                    else:
+                        # 长音符
+                        half_width = int(lane_width * 0.4)
+                        top_y = int(note.y)
+                        bottom_y = int(note.y + note.note_length)
+                        bar_color = (0, 255, 0) if note.is_held else color
+                        cv2.rectangle(canvas, (lane_x - half_width, top_y),
+                                    (lane_x + half_width, bottom_y), bar_color, -1)
+                        cv2.rectangle(canvas, (lane_x - half_width, top_y),
+                                    (lane_x + half_width, bottom_y), (255, 255, 255), 2)
+                        cv2.circle(canvas, (lane_x, top_y), 8, (255, 255, 0), 2)
+                        cv2.circle(canvas, (lane_x, bottom_y), 8, (255, 255, 0), 2)
+        
+        # 分数面板
+        panel_h = 120
+        cv2.rectangle(canvas, (10, 10), (300, panel_h), (0, 0, 0), -1)
+        cv2.rectangle(canvas, (10, 10), (300, panel_h), (255, 255, 255), 2)
+        
+        cv2.putText(canvas, f"SCORE: {game.score}", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        
+        combo_color = (255, 215, 0) if game.combo > 10 else (255, 255, 0)
+        cv2.putText(canvas, f"COMBO: {game.combo}", (20, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, combo_color, 2)
+        
+        stats_text = f"P:{game.perfect_count} G:{game.good_count} M:{game.miss_count}"
+        cv2.putText(canvas, stats_text, (20, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        
+        # 判定反馈
+        if game.feedback_text and current_time_ms - game.feedback_time < game.feedback_duration:
+            feedback_size = 2.5 if 'Perfect' in game.feedback_text else 2.0
+            feedback_color = (0, 255, 0) if 'Perfect' in game.feedback_text else (255, 255, 0)
+            if 'Miss' in game.feedback_text:
+                feedback_color = (0, 0, 255)
+            
+            text_size = cv2.getTextSize(game.feedback_text, cv2.FONT_HERSHEY_SIMPLEX, 
+                                        feedback_size, 4)[0]
+            text_x = (w - text_size[0]) // 2
+            text_y = h // 2
+            
+            cv2.putText(canvas, game.feedback_text, (text_x + 3, text_y + 3),
+                       cv2.FONT_HERSHEY_SIMPLEX, feedback_size, (0, 0, 0), 6)
+            cv2.putText(canvas, game.feedback_text, (text_x, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, feedback_size, feedback_color, 4)
+        
+        # 进度条
+        progress = game.get_progress()
+        bar_width = w - 40
+        bar_x = 20
+        bar_y = h - 40
+        bar_height = 25
+        
+        cv2.rectangle(canvas, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), 
+                     (50, 50, 50), -1)
+        cv2.rectangle(canvas, (bar_x, bar_y), 
+                     (bar_x + int(bar_width * progress), bar_y + bar_height), 
+                     (0, 255, 255), -1)
+        cv2.rectangle(canvas, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), 
+                     (255, 255, 255), 2)
+        
+        progress_text = f"{int(progress * 100)}%"
+        cv2.putText(canvas, progress_text, (bar_x + bar_width + 10, bar_y + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        cv2.putText(canvas, f"{chart.title} - {chart.artist}", (bar_x, bar_y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
 
     def closeEvent(self, e):
         try:
@@ -1682,17 +2075,26 @@ class AirDrumApp(QtWidgets.QWidget):
         
         # 暂停/继续快捷键 (空格)
         if key_code == QtCore.Qt.Key_Space:
-            if self.rhythm_game.active:
-                was_paused = self.rhythm_game.toggle_pause()
-                if was_paused:
-                    print("游戏已暂停")
-                else:
-                    print("游戏已继续")
+            if self.rhythm_game and self.rhythm_game.active:
+                self.rhythm_game.toggle_pause()
+            return
+        
+        # 游戏模式的键盘判定
+        if self.rhythm_game and self.rhythm_game.active:
+            h = self.canvas.height()
+            if key == 'A':  # 左轨道
+                result = self.rhythm_game.judge_hit(0, time.time() * 1000, h)
+                if result:
+                    print(f"键盘触发: 左轨道 - {result}")
+            elif key == 'D':  # 右轨道
+                result = self.rhythm_game.judge_hit(1, time.time() * 1000, h)
+                if result:
+                    print(f"键盘触发: 右轨道 - {result}")
             return
         
         # ESC 键退出游戏
         if key_code == QtCore.Qt.Key_Escape:
-            if self.rhythm_game.paused:
+            if self.rhythm_game and self.rhythm_game.paused:
                 self.rhythm_game.active = False
                 self.rhythm_game.paused = False
                 print("已退出游戏")
@@ -1822,7 +2224,7 @@ class AirDrumApp(QtWidgets.QWidget):
 
                     # 节奏游戏判定
                     if self.rhythm_game.active:
-                        self.rhythm_game.judge_hit(i, now_ms, h, self.drums)
+                        self.rhythm_game.judge_hit(i, now_ms, h)
 
         # 更新音量推杆
         if self.hand_tracker.hand_landmarks:
@@ -1840,21 +2242,54 @@ class AirDrumApp(QtWidgets.QWidget):
                             sound.set_volume(new_volume)
                     pygame.mixer.music.set_volume(new_volume)
 
-        # 更新节奏游戏
-        self.rhythm_game.update(now_ms, h)
-
-        # 游戏模式下更新拖拽状态和长按检测
-        if self.rhythm_game.active and self.hand_tracker.hand_landmarks:
-            self.rhythm_game.update_dragging(self.hand_tracker.hand_landmarks, self.drums, w, h)
-            # 检测长按手势（用于长条音符）
-            self.rhythm_game.detect_long_press(self.hand_tracker.hand_landmarks, self.drums, w, h, now_ms)
+        # 更新游戏模式（谱面系统）
+        if self.rhythm_game and self.rhythm_game.active:
+            was_active = self.rhythm_game.active
+            self.rhythm_game.update(now_ms, h)
+            
+            # 更新长按检测
+            if self.hand_tracker.hand_landmarks:
+                self.rhythm_game.detect_long_press(
+                    self.hand_tracker.hand_landmarks, w, h
+                )
+            
+            # 检查游戏是否自动结束（所有音符判定完成）
+            if was_active and not self.rhythm_game.active:
+                # 游戏自动结束，显示最终分数
+                self.btnGameMode.setChecked(False)
+                self.btnGameMode.setText('🎮 Game Mode: OFF')
+                self.btnGameMode.setStyleSheet('')
+                self.btnSelectChart.setEnabled(True)
+                
+                # 恢复鼓的位置
+                self.drums[0].set_position(0.14, 0.1)
+                self.drums[1].set_position(0.34, 0.1)
+                
+                # 显示最终分数
+                if self.rhythm_game.current_chart:
+                    total_notes = len(self.rhythm_game.current_chart.notes)
+                    accuracy = 0
+                    if total_notes > 0:
+                        accuracy = (self.rhythm_game.perfect_count + self.rhythm_game.good_count) / total_notes * 100
+                    
+                    QtWidgets.QMessageBox.information(
+                        self, "游戏结束",
+                        f"<h3>🏆 {self.rhythm_game.current_chart.title}</h3>"
+                        f"<p><b>最终得分:</b> {self.rhythm_game.score}</p>"
+                        f"<p><b>最大连击:</b> {self.rhythm_game.max_combo}</p>"
+                        f"<p><b>Perfect:</b> {self.rhythm_game.perfect_count}</p>"
+                        f"<p><b>Good:</b> {self.rhythm_game.good_count}</p>"
+                        f"<p><b>Miss:</b> {self.rhythm_game.miss_count}</p>"
+                        f"<hr>"
+                        f"<p><b>准确率:</b> {accuracy:.1f}%</p>"
+                    )
 
         # 更新粒子系统
         self.particle_system.update()
 
         # ========== 钢琴逻辑（保持原有的 Winner-Takes-All）==========
         # 游戏模式下禁用钢琴
-        if not self.rhythm_game.active:
+        if not (self.rhythm_game and self.rhythm_game.active):
             # 为钢琴键设置帧大小（UI已经通过镜像画面自动调整）
             for pad in self.pads:
                 if 'Piano' in pad.name:
@@ -1915,14 +2350,14 @@ class AirDrumApp(QtWidgets.QWidget):
 
         # ========== 绘制 UI ==========
 
-        # 绘制节奏游戏（在鼓之前绘制，作为背景）
-        if self.rhythm_game.active:
-            self.rhythm_game.draw(canvas, w, h, self.pads, self.drums)
+        # 绘制游戏UI（谱面模式）
+        if self.rhythm_game and self.rhythm_game.active:
+            self.draw_rhythm_master_ui(canvas, w, h, now_ms)
 
         # 绘制鼓（UI已经通过镜像画面自动调整，不需要再次调整坐标）
         for i, (drum, pad) in enumerate(zip(self.drums, self.pads[:len(self.drums)])):
             # 游戏模式下只绘制前两个鼓
-            if self.rhythm_game.active and i >= 2:
+            if self.rhythm_game and self.rhythm_game.active and i >= 2:
                 continue
 
             # 使用实际 VirtualDrum 的位置
@@ -1951,7 +2386,7 @@ class AirDrumApp(QtWidgets.QWidget):
                         cv2.LINE_AA)
 
         # 绘制钢琴键（游戏模式下隐藏）
-        if not self.rhythm_game.active:
+        if not (self.rhythm_game and self.rhythm_game.active):
             for pad in self.pads[len(self.drums):]:
                 if pad.draw_rect:
                     rx, ry, rw, rh = pad.draw_rect
