@@ -1967,8 +1967,9 @@ class AirDrumApp(QtWidgets.QWidget):
         # 倒计时显示（覆盖在游戏界面上）
         if game.countdown_active and game.countdown_value > 0:
             countdown_text = str(game.countdown_value)
-            font_scale = 10
-            thickness = 20
+            # Smaller font to avoid touching the top
+            font_scale = 8
+            thickness = 16
             text_size = cv2.getTextSize(countdown_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
             text_x = (w - text_size[0]) // 2
             text_y = int(h * 0.42)  # move higher so it's fully visible
