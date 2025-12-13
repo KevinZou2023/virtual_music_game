@@ -1,0 +1,121 @@
+{
+  "title": "小星星 - 挑战版",
+  "artist": "经典儿歌",
+  "audio_file": "twinkle_twinkle.wav",
+  "bpm": 120,
+  "difficulty": 3,
+  "notes": [
+    {
+      "time": 0,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 500,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 1000,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 1500,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 2000,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 2250,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 2500,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 3000,
+      "lane": 1,
+      "type": "long",
+      "duration": 1000,
+      "note": "F"
+    },
+    {
+      "time": 4500,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 5000,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 5500,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 6000,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "D"
+    },
+    {
+      "time": 6500,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "D"
+    },
+    {
+      "time": 6750,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 7000,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 7500,
+      "lane": 0,
+      "type": "long",
+      "duration": 1000,
+      "note": "G"
+    }
+  ]
+}

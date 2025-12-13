@@ -1,0 +1,25 @@
+{
+  "title": "示例曲目 - 新手练习",
+  "artist": "AirDrum Team",
+  "audio_file": "demo_song.wav",
+  "bpm": 120,
+  "difficulty": 2,
+  "notes": [
+    {"time": 0, "lane": 0, "type": "short", "duration": 0, "note": "C"},
+    {"time": 500, "lane": 1, "type": "short", "duration": 0, "note": "G"},
+    {"time": 1000, "lane": 0, "type": "short", "duration": 0, "note": "C"},
+    {"time": 1500, "lane": 1, "type": "long", "duration": 1000, "note": "G"},
+    {"time": 3000, "lane": 0, "type": "short", "duration": 0, "note": "E"},
+    {"time": 3500, "lane": 1, "type": "short", "duration": 0, "note": "A"},
+    {"time": 4000, "lane": 0, "type": "long", "duration": 1500, "note": "E"},
+    {"time": 6000, "lane": 1, "type": "short", "duration": 0, "note": "G"},
+    {"time": 6500, "lane": 0, "type": "short", "duration": 0, "note": "D"},
+    {"time": 7000, "lane": 1, "type": "short", "duration": 0, "note": "A"},
+    {"time": 7500, "lane": 0, "type": "short", "duration": 0, "note": "F"},
+    {"time": 8000, "lane": 1, "type": "long", "duration": 2000, "note": "G"},
+    {"time": 10500, "lane": 0, "type": "short", "duration": 0, "note": "C"},
+    {"time": 11000, "lane": 1, "type": "short", "duration": 0, "note": "E"},
+    {"time": 11500, "lane": 0, "type": "short", "duration": 0, "note": "D"},
+    {"time": 12000, "lane": 1, "type": "short", "duration": 0, "note": "C"}
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "title": "经典节奏 - 进阶训练",
+  "artist": "AirDrum Team",
+  "audio_file": "classic_beat.wav",
+  "bpm": 140,
+  "difficulty": 3,
+  "notes": [
+    {
+      "time": 0,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 429,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 857,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 1286,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 1714,
+      "lane": 0,
+      "type": "long",
+      "duration": 857,
+      "note": "C"
+    },
+    {
+      "time": 2571,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 3000,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "D"
+    },
+    {
+      "time": 3429,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 3857,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 4286,
+      "lane": 1,
+      "type": "long",
+      "duration": 1286,
+      "note": "G"
+    },
+    {
+      "time": 5571,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 6000,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 6429,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 6857,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 7286,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 7714,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "D"
+    },
+    {
+      "time": 8143,
+      "lane": 0,
+      "type": "long",
+      "duration": 1714,
+      "note": "C"
+    },
+    {
+      "time": 9857,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 10286,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 10714,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 11143,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 11571,
+      "lane": 1,
+      "type": "short",
+      "duration": 0
+    },
+    {
+      "time": 12000,
+      "lane": 0,
+      "type": "short",
+      "duration": 0
+    }
+  ]
+}

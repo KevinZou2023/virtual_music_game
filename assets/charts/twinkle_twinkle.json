@@ -1,0 +1,254 @@
+{
+  "title": "小星星",
+  "artist": "经典儿歌",
+  "audio_file": "twinkle_twinkle.wav",
+  "bpm": 100,
+  "difficulty": 1,
+  "notes": [
+    {
+      "time": 0,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 600,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 1200,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 1800,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 2400,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 3000,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 3600,
+      "lane": 1,
+      "type": "long",
+      "duration": 1200,
+      "note": "G"
+    },
+    {
+      "time": 5400,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 6000,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 6600,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 7200,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 7800,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "D"
+    },
+    {
+      "time": 8400,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "D"
+    },
+    {
+      "time": 9000,
+      "lane": 0,
+      "type": "long",
+      "duration": 1200,
+      "note": "C"
+    },
+    {
+      "time": 10800,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 11400,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 12000,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 12600,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 13200,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 13800,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 14400,
+      "lane": 0,
+      "type": "long",
+      "duration": 1200,
+      "note": "D"
+    },
+    {
+      "time": 16200,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 16800,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 17400,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 18000,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "F"
+    },
+    {
+      "time": 18600,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 19200,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "E"
+    },
+    {
+      "time": 19800,
+      "lane": 0,
+      "type": "long",
+      "duration": 1200,
+      "note": "D"
+    },
+    {
+      "time": 21600,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 22200,
+      "lane": 0,
+      "type": "short",
+      "duration": 0,
+      "note": "C"
+    },
+    {
+      "time": 22800,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 23400,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "G"
+    },
+    {
+      "time": 24000,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 24600,
+      "lane": 1,
+      "type": "short",
+      "duration": 0,
+      "note": "A"
+    },
+    {
+      "time": 25200,
+      "lane": 1,
+      "type": "long",
+      "duration": 1800,
+      "note": "G"
+    }
+  ]
+}
