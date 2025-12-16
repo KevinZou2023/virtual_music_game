@@ -33,6 +33,7 @@ class ChartNote:
         self.judge_result = None  # 'Perfect', 'Good', 'Miss'
         self.note_length = 0  # 长音符的像素长度
         self.is_held = False  # 长音符是否正在被按住
+        self.hit_played = False  # 长音符是否已触发过音效/判定
 
 
 class Chart:
@@ -222,6 +223,7 @@ class RhythmMasterGame:
                 note.judge_result = None
                 note.y = 0
                 note.is_held = False
+                note.hit_played = False
     
     def update(self, current_time_ms: float, frame_height: int):
         """更新游戏状态"""
@@ -253,7 +255,7 @@ class RhythmMasterGame:
         all_spawned = all(note.spawned for note in self.current_chart.notes)
         all_judged = all(note.judged for note in self.current_chart.notes)
         
-        if all_spawned and all_judged and len(self.current_chart.notes) > 0:
+        if all_spawned and all_judged and len(self.current_chart.notes) > 0 and self.current_time_ms >= self.current_chart.duration_ms:
             print("✓ 曲目完成！")
             self.show_final_score()
             self.active = False
@@ -281,7 +283,11 @@ class RhythmMasterGame:
                 # 根据时间计算音符应该在的位置
                 time_since_spawn = self.current_time_ms - (note.time_ms - self.spawn_ahead_time)
                 target_y = (time_since_spawn / 1000.0) * self.note_speed
-                note.y = target_y
+                # 长条从屏幕上方开始落下，让条身跟随头部一起下落
+                if note.note_type == 'long':
+                    note.y = target_y - note.note_length
+                else:
+                    note.y = target_y
                 
                 # 更新长按状态
                 if note.note_type == 'long' and note.lane in self.long_press_lanes:
@@ -289,14 +295,39 @@ class RhythmMasterGame:
                 else:
                     if note.note_type == 'long':
                         note.is_held = False
+                
+                # 长条：当判定线落在条身范围内且当前有按住时再触发，允许从中途开始按
+                if note.note_type == 'long' and not note.hit_played:
+                    inside_body = judge_y_px >= note.y and judge_y_px <= note.y + note.note_length
+                    if inside_body and note.lane in self.long_press_lanes:
+                        note.hit_played = True
+                        note.is_held = True
+                        self.play_hit_sound(note, 'Hold')
+                        # 给予一次判定奖励
+                        self.score += 100
+                        self.combo += 1
+                        self.max_combo = max(self.max_combo, self.combo)
+                        self.show_feedback("Hold", current_time_ms)
+
+                # 长条尾部通过判定线后结束判定，避免一直停留
+                if note.note_type == 'long' and note.hit_played:
+                    if note.y + note.note_length > judge_y_px + self.judge_good:
+                        note.judged = True
+                        note.judge_result = 'Perfect'
         
         # 检查Miss
         for note in self.current_chart.notes:
             if note.spawned and not note.judged:
                 if note.note_type == 'short' and note.y > judge_y_px + 100:
                     self.judge_miss(note, current_time_ms)
-                elif note.note_type == 'long' and note.y + note.note_length > judge_y_px + self.judge_good:
-                    self.judge_miss(note, current_time_ms)
+                elif note.note_type == 'long':
+                    # 长条：尾部经过判定线后，如果从未成功按住，则判 Miss；否则算完成
+                    if note.y + note.note_length > judge_y_px + self.judge_good:
+                        if not note.hit_played:
+                            self.judge_miss(note, current_time_ms)
+                        else:
+                            note.judged = True
+                            note.judge_result = 'Perfect'
     
     def judge_hit(self, lane: int, current_time_ms: float, frame_height: int) -> Optional[str]:
         """判定击打（短音符）"""
@@ -304,6 +335,22 @@ class RhythmMasterGame:
             return None
         
         judge_y_px = int(self.judge_line_y * frame_height)
+
+        # 先处理长条：击打时如果判定线落在长条身上（允许中途补按），直接算按住并触发音效
+        for note in self.current_chart.notes:
+            if (note.lane == lane and note.spawned and not note.judged and 
+                note.note_type == 'long' and not note.hit_played):
+                in_body = judge_y_px >= note.y and judge_y_px <= note.y + note.note_length
+                near_head_or_tail = abs(judge_y_px - note.y) < self.judge_good or abs(judge_y_px - (note.y + note.note_length)) < self.judge_good
+                if in_body or near_head_or_tail:
+                    note.hit_played = True
+                    note.is_held = True
+                    self.play_hit_sound(note, 'Hold')
+                    self.score += 100
+                    self.combo += 1
+                    self.max_combo = max(self.max_combo, self.combo)
+                    self.show_feedback("Hold", current_time_ms)
+                    return 'Hold'
         
         # 查找该轨道最近的未判定短音符
         closest_note = None
