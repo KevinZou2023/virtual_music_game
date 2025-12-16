@@ -254,11 +254,16 @@ class VolumeSlider:
                 hand_x = (thumb_tip.x + pinky_tip.x) / 2
                 hand_y = (thumb_tip.y + pinky_tip.y) / 2
 
-                # 检查是否在推杆区域内
-                slider_left = self.x_norm - self.width_norm / 2
-                slider_right = self.x_norm + self.width_norm / 2
-                slider_top = self.y_norm
-                slider_bottom = self.y_norm + self.height_norm
+                # 检查是否在推杆区域内（留出一定冗余，方便在条附近就能控制）
+                expand = 1.5  # 扩大检测区域比例
+                slider_left = self.x_norm - (self.width_norm * expand) / 2
+                slider_right = self.x_norm + (self.width_norm * expand) / 2
+                slider_top = self.y_norm - (self.height_norm * (expand - 1) / 2)
+                slider_bottom = self.y_norm + self.height_norm + (self.height_norm * (expand - 1) / 2)
+                slider_left = max(0.0, slider_left)
+                slider_right = min(1.0, slider_right)
+                slider_top = max(0.0, slider_top)
+                slider_bottom = min(1.0, slider_bottom)
 
                 in_slider_area = (slider_left <= hand_x <= slider_right and
                                   slider_top <= hand_y <= slider_bottom)
@@ -359,8 +364,8 @@ class Note:
             top_y = int(self.y)
             bottom_y = int(self.y + self.note_length)
             
-            # 长条颜色：如果被按住则为绿色，否则为原色
-            bar_color = (0, 255, 0) if self.is_held else color
+            # 长条颜色：固定使用原色，不再因按住变色
+            bar_color = color
             bar_outline = outline if outline_color is not None else darken(bar_color)
             cv2.rectangle(canvas, (lane_x - half_width, top_y), 
                          (lane_x + half_width, bottom_y), bar_color, -1)
@@ -2022,10 +2027,9 @@ class AirDrumApp(QtWidgets.QWidget):
                         half_width = int(lane_width * 0.4)
                         top_y = int(note.y)
                         bottom_y = int(note.y + note.note_length)
-                        bar_color = (0, 255, 0) if note.is_held else color
                         bar_outline = outline
                         cv2.rectangle(canvas, (lane_x - half_width, top_y),
-                                    (lane_x + half_width, bottom_y), bar_color, -1)
+                                    (lane_x + half_width, bottom_y), color, -1)
                         cv2.rectangle(canvas, (lane_x - half_width, top_y),
                                     (lane_x + half_width, bottom_y), bar_outline, 3)
                         cv2.circle(canvas, (lane_x, top_y), 9, color, -1)
