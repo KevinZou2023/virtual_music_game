@@ -1919,7 +1919,15 @@ class AirDrumApp(QtWidgets.QWidget):
             QtWidgets.QMessageBox.Information,
             rich=True
         )
-        intro.exec_()
+        intro.setStandardButtons(QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
+        result = intro.exec_()
+        if result != QtWidgets.QMessageBox.Ok:
+            # 用户取消/关闭时不进入倒计时
+            self.btnGameMode.setChecked(False)
+            self.btnGameMode.setText('🎮 Game Mode: OFF')
+            self.btnGameMode.setStyleSheet('')
+            self.btnSelectChart.setEnabled(True)
+            return
         
         # 先设置UI和游戏状态
         self.btnGameMode.setChecked(True)
